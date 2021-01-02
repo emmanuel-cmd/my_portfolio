@@ -1,0 +1,151 @@
+---
+title: "HIWI2020 test"
+author: "Emmanuel Adeleke"
+date: "9/28/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading the required libraries
+
+```{r message = F}
+library(raster)
+library(ncdf4)
+library(dplyr)
+```
+
+
+## Open NCDFile as raster object
+
+```{r warning=FALSE}
+
+prcp <- brick("prcp-195101-grd-scaled.nc", var = "prcp")
+prcp[prcp == NaN] <- NA
+
+```
+
+## Plot raster map e.g. day 1
+
+```{r}
+plot(prcp$X1951.01.01)
+```
+
+Prepare basin boundary information from the BDY file
+=============================
+
+```{r}
+# read BDY file as text file
+bound <- read.delim("02387000.BDY")
+
+# create empty matrix to populate later in a for loop
+out <- matrix(ncol=2, nrow=length(bound$X023870....621))
+
+for (i in 1:length(bound$X023870....621)){
+  out[i,] <- strsplit(bound$X023870....621[i], split = " ", fixed = T)[[1]][c(2,4)]
+}
+
+# convert matrix to dataframe
+df_bound <- as.data.frame(out)
+
+# convert string columns to numeric type and rename columns 
+df_bound$V1 <- as.numeric(df_bound$V1)
+df_bound$V2 <- as.numeric(df_bound$V2)
+names(df_bound) <- c("Longitude", "Latitude")
+
+
+```
+
+Here, we convert the boundary dataframe to a SpatialPolygons R object
+=======================================================================
+
+```{r warning =FALSE}
+
+# convert coordinates to SpatialPolygon object 
+poly <- Polygon(df_bound[,c(1,2)], hole = T)
+poly_list <- Polygons(list(poly), ID = "polygon1")
+boundPolygon <- SpatialPolygons(list(poly_list), proj4string = CRS('+proj=longlat +datum=WGS84 +no_defs'))
+boundPolygon
+```
+
+```{r basin}
+# plot basin polygon 
+plot(boundPolygon)
+
+```
+
+Now we overlap the basin on the raster map and extract relevant information
+============================================================================
+Generated 'results' is a list containing raster cell number(ID),
+daily precipitation estimate in that cell, fraction(%) of cell that is covered by polygon,
+and the coordinates of the cells
+
+```{r warning =FALSE}
+# create empty list to populate in a for loop
+results <- list()
+
+for (i in 1:nlayers(prcp)){
+  
+  # overlay basin on raster and extract daily precip data and percentage of overlapping region
+  results[[i]] <- extract(prcp[[i]], boundPolygon, weights = T, cellnumbers=T)
+  
+  # extract coordinates of polygons and bind to data
+  results[[i]] <- cbind(results[[i]][[1]], coordinates(prcp[[i]])[results[[i]][[1]][,1],])
+  
+}
+```
+
+
+Prepare result dataframe for export
+=====================================
+
+```{r}
+# convert list 'results' to a dataframe
+finalDF<- do.call("rbind", results) %>% as.data.frame()
+finalDF$weight <- finalDF$weight*100
+
+# rename columns
+names(finalDF) <- c("cell_ID", "daily_precip", "cell_percentage", "Longitude", "Latitude")
+
+```
+
+We can also calculate weighted average for each cell that overlaps with the polygon
+====================================================================================
+
+```{r}
+finalDF$weighted_avg <- (finalDF$daily_precip*finalDF$cell_percentage)/finalDF$cell_percentage
+head(finalDF)
+```
+
+Finally, we calculate weighted daily average precipitation
+============================================================
+
+```{r}
+# Calculate daily average precipitation (pavg) 
+
+# create empty vector to populate in a for loop
+pavg <- c()
+
+for (i in 1:length(results)){
+  pavg[i] <- sum(results[[i]][,2] * (results[[i]][,3]*100)) / sum(results[[i]][,3]*100)
+  
+}
+
+# convert data to a dataframe 
+pavg <- as.data.frame(pavg)
+head(pavg)
+
+```
+
+# Export results in .csv files
+
+```{r}
+write.csv(finalDF, "results/weightedavgprecip.csv")
+write.csv(pavg, "results/weightedavgdailyprecip.csv")
+
+```
+
