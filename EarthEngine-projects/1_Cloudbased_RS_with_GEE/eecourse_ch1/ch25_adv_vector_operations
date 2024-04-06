@@ -1,0 +1,144 @@
+// Creating a Chloropleth map
+// We'll use the Tiger: US CENSUS block layer along with the San Francisco boundary layer
+var blocks = ee.FeatureCollection('TIGER/2010/Blocks');
+var roads = ee.FeatureCollection('TIGER/2016/Roads');
+var sfNeighborhoods = ee.FeatureCollection('projects/gee-book/assets/F5-0/SFneighborhoods');
+var geometry = sfNeighborhoods.geometry();
+Map.centerObject(geometry);
+
+// Filter blocks to the San Francisco boundary.
+var sfBlocks = blocks.filter(ee.Filter.bounds(geometry));
+
+// Visualize with a single color.
+Map.addLayer(
+  sfBlocks, 
+  {
+    color: '#de2d26'
+  }, 'Census Blocks (single color)', 0);
+  
+// Add a pop_density column.
+var sfBlocks = sfBlocks.map(function(f) {
+  // Get the polygon area in square miles.
+  var area_sqmi = f.area().divide(2.59e6);
+  var population = f.get('pop10');
+  // Calculate population density.
+  var density = ee.Number(population).divide(area_sqmi);
+  return f.set({
+    'area_sqmi': area_sqmi,
+    'pop_density': density
+  });
+});
+
+// Now we use the paint function to create an image from this FeatureCollection
+// using the pop_density property. The paint function needs an empty image
+// that needs to be cast into the appropriate data type
+// Let's use the aggregate_stats function to calculate basic statistics for
+// the given column of a FeatureCollection
+
+// Calculate the statistics of the newly computed column.
+var stats = sfBlocks.aggregate_stats('pop_density');
+print(stats);
+
+// Create an empty image into which to paint the features.
+// Cast to 32-bit integer which supports storing values
+// up to 2,147,483,647.
+var empty = ee.Image().int32();
+
+// Now we can use the paint function, seen briefly in Chap. 23, to assign each
+// pixel’s value based on the pop_density property. 
+var sfBlocksPaint = empty.paint({
+  featureCollection: sfBlocks,
+  color: 'pop_density',
+}); 
+
+// The result is an image with pixel values representing the population density of
+// the polygons. We can now use the standard image visualization method to add this
+// layer to the Map
+var palette = ['fee5d9', 'fcae91', 'fb6a4a', 'de2d26', 'a50f15'];
+var visParams = {
+  min: 0,
+  max: 50000,
+  palette: palette
+};
+
+Map.addLayer(
+  sfBlocksPaint.clip(geometry), 
+  visParams,
+  'Population Density', 
+  false
+);
+
+// Creating a Categorical Map
+
+// Let's see how we can visualize the roads layer to create a categorical map
+// Filter roads to San Francisco boundary.
+var sfRoads = roads.filter(ee.Filter.bounds(geometry));
+Map.addLayer(
+  sfRoads, 
+  {
+    color: 'blue'
+  }, 
+  'Roads (default)', 
+  0
+);//the default visualization renders each line using a width of 2px
+// we can use draw to specify a different width
+
+// Visualize with draw().
+var sfRoadsDraw = sfRoads.draw({
+    color: 'blue',
+    strokeWidth: 1
+});
+
+Map.addLayer(
+  sfRoadsDraw, 
+  {}, 
+  'Roads (Draw)', 
+  0
+);
+
+// The road layer has the MTFCC column (feature class codes)
+// We can use this information to render each road segment according to its priority
+// the style function allows to specify different styles for each feature
+
+var styles = ee.Dictionary({
+  'S1100': {
+    'color': 'blue',
+    'width': 3
+  },
+  'S1200': {
+    'color': 'green',
+    'width': 2
+  },
+  'S1400': {
+    'color': 'orange',
+    'width': 1
+  }
+});
+
+var defaultStyle = {
+  color: 'gray',
+  'width': 1
+}; 
+
+// The style function needs a property in the FeatureCollection that
+// contains a dictionary with the style parameters
+// This allows you to specify a different style for each feature
+var sfRoads = sfRoads.map(function(f) {
+  var classcode = f.get('mtfcc');
+  var style = styles.get(classcode, defaultStyle); // allows us to fetch the value for a key in the dictionary. It also takes a default value in case the specified key does not exist   
+  return f.set('style', style); // We assign an appropriate style dictionary to a new property named style
+});
+
+// We call the style function to specify the property that contains 
+// the dictionary of style parameters
+var sfRoadsStyle = sfRoads.style({
+  styleProperty: 'style'
+});
+
+Map.addLayer(
+  sfRoadsStyle.clip(geometry), 
+  {}, 
+  'Roads (Style)'
+); 
+
+

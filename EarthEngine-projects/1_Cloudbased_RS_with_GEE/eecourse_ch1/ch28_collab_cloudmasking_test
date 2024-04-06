@@ -1,0 +1,19 @@
+// Load the module
+var myCloudFunctions = require('users/emmanueldammilare/eecourse_ch1:ch28_collab_cloudmasking');
+
+// Map the function over one year of data.
+var collection = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+  .filterDate('2020-01-01', '2021-01-01')
+  .map(myCloudFunctions.maskL8sr);
+var composite = collection.median();
+
+// Display the results.
+Map.setCenter(-4.52, 40.29, 7); // Iberian Peninsula
+Map.addLayer(
+  composite, 
+  {
+    bands: ['SR_B4', 'SR_B3', 'SR_B2'],
+    min: 0,
+    max: 0.3
+  }
+);

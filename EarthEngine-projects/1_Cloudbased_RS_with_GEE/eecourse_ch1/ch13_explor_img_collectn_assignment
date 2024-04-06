@@ -1,0 +1,81 @@
+// ASSIGNMENT
+
+// 1. Noting that your own interpretation of what constitutes a good
+// composite is subjective, create a series of composites of a different location, or
+// perhaps a pair of locations, for a given set of dates.
+
+var lagkanPoint = ee.FeatureCollection(
+    [ee.Feature(
+      ee.Geometry.Point([3.3685746776459844, 6.513433658765762]),
+      {
+        "system:index": "0"
+      }),
+    ee.Feature(
+      ee.Geometry.Point([8.70518351869767, 12.146996240996684]),
+      {
+        "system:index": "1"
+    })]
+)
+
+// print('lagkanPoint:', lagkanPoint);
+// Map.addLayer(
+//   lagkanPoint, 
+//   {}, 
+//   'my_point'
+// );
+
+var myfilteredIC = ee.ImageCollection('LANDSAT/LC08/C02/T1_TOA')
+    .filterDate('1996-01-01', '2023-01-01')
+    .filterBounds(lagkanPoint)
+    .select(['B6', 'B5', 'B4']);  // for false color 
+    
+print('The number of Landsat images which cover lagos and kano is:', myfilteredIC.size());
+
+Map.centerObject(lagkanPoint, 5);
+
+Map.addLayer(
+    myfilteredIC, {}, 
+    'My filtered landsat images LAG/KAN'
+)
+
+// 2. Filter to create a relevant dataset—for example, for Landsat 8 or
+// Sentinel-2 over an agricultural growing season. Create percentile composites for a
+// given location. Which image composite is the most satisfying, and what type of
+// project do you have in mind when giving that response? 
+
+var leipzigPoint = ee.Geometry.Point([12.38606681809381, 51.34209582147649]);
+
+var myfilteredsentIC = ee.ImageCollection("COPERNICUS/S2_SR")
+    .filter(ee.Filter.calendarRange(6, 8, 'month')) // agric growing season
+    .filterBounds(leipzigPoint)
+    .select(['B11', 'B8', 'B4'])
+
+Map.centerObject(leipzigPoint, 10);
+Map.addLayer(
+  myfilteredsentIC, 
+  {}, 
+  'My filtered sentinel images LEIP'
+);
+
+// Calculate 30% percentile over images 
+var p30 = myfilteredsentIC.reduce(ee.Reducer.percentile([30]));
+
+Map.addLayer(p30, {
+}, '30%');
+
+// Let's compute percentile images and add them as separate layers
+var percentiles = [0, 10, 20, 30, 40, 50, 60, 70, 80];
+
+percentiles.map(function(p) {
+  var image = myfilteredsentIC.reduce(ee.Reducer.percentile([p]));
+  Map.addLayer(image, {
+    // min: 0.05,
+    // max: 0.35
+  }, p + '%');
+}); 
+
+// Let's calculate mean over our images
+var meanfilterdsentIC = myfilteredsentIC.reduce(ee.Reducer.mean())
+Map.addLayer(meanfilterdsentIC, {}, 'Mean values within filtered collections LEIP')
+
+

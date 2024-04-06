@@ -1,0 +1,90 @@
+// Practicum
+// Our first example in this section applies a diverging colormap to temperature
+
+// Load the ERA5 reanalysis monthly means.
+var era5 = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY');
+
+// Load the palettes package.
+var palettes = require('users/gena/packages:palettes');
+
+// Select temperature near ground.
+era5 = era5.select('temperature_2m');
+
+// Now we can visualize the data. Here we have a temperature difference
+// we will use the colormap Balance from the cmocean package
+// an compare with a simple blue, white and red palette
+
+// Choose a diverging colormap for anomalies.
+var balancePalette = palettes.cmocean.Balance[7];
+var threeColorPalette = ['blue', 'white', 'red'];
+
+// Show the palette in the Inspector window.
+palettes.showPalette('temperature anomaly', balancePalette);
+palettes.showPalette('temperature anomaly', threeColorPalette);
+
+// Select 2 time windows of 10 years.
+var era5_1980 = era5.filterDate('1981-01-01', '1991-01-01').mean();
+var era5_2010 = era5.filterDate('2011-01-01', '2020-01-01').mean();
+
+// Compute the temperature change.
+var era5_diff = era5_2010.subtract(era5_1980);
+
+// Show it on the map.
+Map.addLayer(
+  era5_diff, 
+  {
+    palette: threeColorPalette,
+    min: -2,
+    max: 2
+  }, 
+  'Blue White Red palette'
+);
+
+Map.addLayer(
+  era5_diff, 
+  {
+    palette: balancePalette,
+    min: -2,
+    max: 2
+  }, 
+  'Balance palette'
+); 
+
+// Our second example focuses on visualizing the Thwaites Glacier
+// The Antartic region is in the dark for 4-5 months each winter
+// That means we can't use optical images but radar images
+// We'll use a semantic colormap to denote the meaning of the radar images+
+
+// An image of the Thwaites glacier.
+var imageId = 'COPERNICUS/S1_GRD/S1B_EW_GRDM_1SSH_20211216T041925_20211216T042029_030045_03965B_AF0A';
+
+// Look it up and select the HH band.
+var img = ee.Image(imageId).select('HH'); 
+
+// Use the palette library.
+var palettes = require('users/gena/packages:palettes');
+
+// Access the ice palette.
+var icePalette = palettes.cmocean.Ice[7];
+
+// Show it in the console.
+palettes.showPalette('Ice', icePalette);
+
+// Use it to visualize the radar data.
+Map.addLayer(
+  img, 
+  {
+    palette: icePalette,
+    min: -15,   // stretched to backscatter amplitude values
+    max: 1
+  }, 
+  'Sentinel-1 radar'
+);
+
+// Zoom to the grounding line of the Thwaites Glacier.
+Map.centerObject(
+  ee.Geometry.Point([-105.45882094907664, -74.90419580705336]), 
+  8
+); 
+
+

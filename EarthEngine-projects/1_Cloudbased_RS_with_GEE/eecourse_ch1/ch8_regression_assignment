@@ -1,0 +1,228 @@
+// For the linear regression example, consider doing the ffg things:
+// + Consider adding/substracting independent variables
+// + testing other training regression functions
+// + using more training data (a larger geometry for Turin)
+
+// Define a Turin polygon.
+var Turin = ee.Geometry.Polygon(
+  [
+    [
+      [7.455553918110218, 45.258245019259036],
+      [7.455553918110218, 44.71237367431335],
+      [8.573412804828967, 44.71237367431335],
+      [8.573412804828967, 45.258245019259036]
+    ]
+  ], null, false);
+
+// Center on Turin
+Map.centerObject(Turin, 9);
+
+// Dependent variable:
+var mod44b = ee.ImageCollection('MODIS/006/MOD44B');
+
+/////
+// Start Linear Fit
+/////
+// Put together the dependent variable by filtering the
+// ImageCollection to just the 2020 image near Turin and
+// selecting the percent tree cover band.
+var percentTree2020 = mod44b
+    .filterDate('2020-01-01', '2021-01-01')
+    .first()
+    .clip(Turin)
+    .select('Percent_Tree_Cover');
+
+// Next we need to assess data to use as our independent
+// variables: 
+var landsat8_raw = ee.ImageCollection('LANDSAT/LC08/C02/T1_RT');
+
+// Put together the independent variable.
+// We will filter the collection to a clear cloud free date
+// in 2020 and then filter by location
+
+var landsat8filtered = landsat8_raw
+    .filterBounds(Turin.centroid({
+        'maxError': 1
+    }))
+    .filterDate('2020-04-01', '2020-4-30')
+    .first();
+
+//////
+// Assignment Start - Linear Regression
+//////
+
+// Assemble the independent variables.
+var predictionBands = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6',
+'B7','B10', 'B11'
+];
+
+// Calculate NDVI and the plant cell density index
+var ndvi = landsat8filtered.normalizedDifference(['B5', 'B4']);
+var pcd = landsat8filtered.select('B5').divide(landsat8filtered.select('B4'));
+
+Map.addLayer(
+  pcd, 
+  {
+    min: 0,
+    max: 5, 
+    palette: ['gray', 'white', 'green', 'darkgreen', 'black']
+  }, 
+  "Plant cell density index"
+)
+
+// Create the training image stack for linear regression.
+// For the constant term, we use the ee.Image(1) to create 
+// an image with value 1 at every pixel
+var trainingImageLR = ee.Image(1)
+.addBands(landsat8filtered.select(predictionBands))
+.addBands(ndvi)
+.addBands(pcd)
+.addBands(percentTree2020);
+
+print('Linear Regression training image:', trainingImageLR);
+
+// Compute Ridge regression
+
+var ridgeRegression = trainingImageLR.reduceRegion({
+  reducer: ee.Reducer.ridgeRegression({
+      numX: 12,
+      numY: 1
+  }),
+      geometry: Turin,
+      scale: 30,
+      bestEffort: true
+});
+
+// Inspect the results.
+print('Ridge regression results:', ridgeRegression);
+
+// To apply the regression coeff to make a prediction over the entire area
+// Extract the coefficients as a list.
+var coefficients = ee.Array(ridgeRegression.get('coefficients'))
+  .project([0])    // returns matrix but we use project to remove one of the dimensions from the matrix
+  .toList();
+  
+print('Coefficients', coefficients);
+
+// Create the predicted tree cover based on ridge regression.
+var predictedTreeRR = ee.Image(1)
+  .addBands(landsat8filtered.select(predictionBands))
+  .addBands(ndvi)
+  .addBands(pcd)
+  .multiply(ee.Image.constant(coefficients.remove(0)))
+  .reduce(ee.Reducer.sum())  // summing over the obtained products
+  .rename('predictedTreeRR')
+  .clip(landsat8filtered.geometry());
+
+Map.addLayer(predictedTreeRR, {
+  min: 0,
+  max: 100
+}, 'RidgeRegression prediction');
+
+// Nonlinear regression
+
+/////
+// Start Non-linear Regression
+/////
+// Create the training data stack.
+var trainingImageCART = ee.Image(landsat8filtered.select(predictionBands))
+.addBands(ndvi)
+.addBands(pcd)
+.addBands(percentTree2020);
+
+// Sample the training data stack.
+var trainingData = trainingImageCART.sample({
+    region: Turin,
+    scale: 30,
+    numPixels: 1500,
+    seed: 5
+});
+// Examine the CART training data.
+print('CART training data', trainingData);
+
+var mypredictionBands = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6',
+'B7','B10', 'B11', 'nd', 'B5_1'
+];
+
+// Run the CART regression.
+var cartRegression = ee.Classifier.smileCart()
+.setOutputMode('REGRESSION')
+.train({
+    features: trainingData,
+    classProperty: 'Percent_Tree_Cover',
+    inputProperties: mypredictionBands
+});
+
+// Create a prediction of tree cover based on the CART regression.
+var cartRegressionImage = landsat8filtered.select(predictionBands).addBands(ndvi).addBands(pcd)
+.classify(cartRegression, 'cartRegression');
+
+Map.addLayer(cartRegressionImage, {
+    min: 0,
+    max: 100
+}, 'CART regression');
+
+// Calculating RMSE to assess model performance
+/////
+// Concatenate percent tree cover image and all predictions.
+
+var concat = ee.Image.cat(
+  percentTree2020,
+  predictedTreeRR, 
+  cartRegressionImage)
+.rename([
+  'TCpercent',
+  'RRprediction', 
+  'CARTprediction'
+]);
+
+// Sample pixels
+var sample = concat.sample({
+    region: Turin,
+    scale: 45,
+    numPixels: 500,
+    seed: 5
+});
+
+print('First feature in sample', sample.first());
+
+// First step: This function computes the squared difference between
+// the predicted percent tree cover and the known percent tree cover
+var calculateDiff = function(feature) {
+    var TCpercent = ee.Number(feature.get('TCpercent'));
+    var diffRRsq = ee.Number(feature.get('RRprediction'))
+    .subtract(TCpercent).pow(2);
+    var diffCARTsq = ee.Number(feature.get('CARTprediction'))
+    .subtract(TCpercent).pow(2);
+  
+  // Return the feature with the squared difference set to a 'diff' property.
+    return feature.set({
+        'diffRRsq': diffRRsq,
+        'diffCARTsq': diffCARTsq
+    });
+};
+
+// Second step: Calculate RMSE for population of pairs.
+
+var rmse = ee.List([ee.Number(
+  
+  // Map the difference function over the collection.
+  sample.map(calculateDiff)
+  
+  // Reduce to get the mean squared difference.
+  .reduceColumns({
+      reducer: ee.Reducer.mean().repeat(2),  // get the mean value (over the 500 pixels) for each selectors
+      selectors: ['diffRRsq', 'diffCARTsq']
+  }).get('mean')
+  
+  // Flatten the list of lists.
+  )]).flatten().map(function(i) {
+  
+  // Take the square root of the mean square differences.
+  return ee.Number(i).sqrt();
+});
+
+// Print the result.
+print('RMSE', rmse);
+
+

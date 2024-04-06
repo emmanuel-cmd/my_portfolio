@@ -1,0 +1,214 @@
+
+// In this lab, we quantified rates of deforestation in La Paya. There
+// is another protected area in the Colombian Amazon named Tinigua. 
+// By modifying the existing scripts, determine how the dynamics of forest change in Tinigua
+// compare to those in La Paya with respect to:
+// • the number of deforestation events;
+// • the year with the greatest number of change events;
+// • the mean average area of change events;
+// • the total area of loss.
+
+// Read input data.
+var gfc = ee.Image('UMD/hansen/global_forest_change_2020_v1_8');
+var wdpa = ee.FeatureCollection('WCMC/WDPA/current/polygons');
+
+// Display deforestation.
+var deforestation = gfc.select('lossyear');
+Map.addLayer(
+  deforestation, 
+  {
+    min: 1,
+    max: 20,
+    palette: ['yellow', 'orange', 'red']
+  }, 
+  'Deforestation raster'
+);
+
+// Display WDPA data.
+var protectedArea = wdpa.filter(ee.Filter.equals('NAME', 'Tinigua'));
+
+// Display protected area as an outline (see F5.3 for paint()).
+var protectedAreaOutline = ee.Image().byte().paint({
+    featureCollection: protectedArea,
+    color: 1,
+    width: 3
+});
+
+// Set up map display.
+Map.centerObject(protectedArea);
+Map.setOptions('SATELLITE');
+
+Map.addLayer(
+  protectedAreaOutline, 
+  {
+    palette: 'white'
+  }, 
+  'Protected area'
+);
+
+// Convert from a deforestation raster to vector.
+var deforestationVector = deforestation.reduceToVectors({
+    scale: deforestation.projection().nominalScale(),
+    geometry: protectedArea.geometry(),
+    labelProperty: 'lossyear', // Label polygons with a change year.
+    maxPixels: 1e13
+});
+
+// Count the number of individual change events
+print('Number of change events:', deforestationVector.size());
+
+// The year with the highest number of change events
+var chart = ui.Chart.feature
+  .histogram({
+    features: deforestationVector,
+    property: 'lossyear'
+  })
+  .setOptions({
+    hAxis: {
+      title: 'Year'
+  },
+    vAxis: {
+      title: 'Number of deforestation events'
+    },
+    legend: {
+      position: 'none'
+    }
+});
+print(chart);
+
+// The mean average area of change events
+deforestationVector = deforestationVector.map(function(feat) {
+  return feat.set('area', feat.geometry().area({
+    maxError: 10
+  }).divide(10000)); // Convert m^2 to hectare.
+});
+
+print(
+  'The mean area of change events:', 
+  deforestationVector.reduceColumns({
+    reducer: ee.Reducer.mean(),
+    selectors: ['area']
+  })
+);
+
+// The total area of loss
+print(
+  'The total area of loss:', 
+  deforestationVector.reduceColumns({
+    reducer: ee.Reducer.sum(),
+    selectors: ['area']
+  })
+);
+
+// Question 2. In Sect. 23.2.1.4, we only considered losses of tree cover, but
+// many protected areas will also have increases in tree cover from regrowth (which
+// is typical of shifting agriculture). Calculate growth in hectares using the Global
+// Forest Change dataset’s gain layer for the six protected areas in Sect. 23.2.1.4
+// by extracting the raster properties and adding them to vector fields. Which has
+// the greatest area of regrowth? Is this likely to be sufficient to balance out the
+// rates of forest loss? Note: The gain layer shows locations where tree cover has
+// increased for the period 2001–2012 (0 = no gain, 1 = tree cover increase), so for
+// comparability use deforestation between the same time period of 2001–2012.
+
+// Display growth.
+var gainlayer = gfc.select('gain');
+
+Map.addLayer(
+  gainlayer, 
+  {
+    min: 0,
+    max: 1,
+    palette: ['e8ffce','ff16d7','23ff1f','1b0cff']
+  }, 
+  'Gain layer raster'
+);
+
+// Select protected areas in the Colombian Amazon.
+var amazonianProtectedAreas = [
+    'Cordillera de los Picachos', 'La Paya', 'Nukak',
+    'Serrania de Chiribiquete',
+    'Sierra de la Macarena', 'Tinigua'
+];
+var wdpaSubset = wdpa.filter(ee.Filter.inList('NAME', amazonianProtectedAreas));
+
+var scale = gainlayer.projection().nominalScale();
+
+// Use 'reduceRegions' to sum together pixel areas in each protected area.
+wdpaSubset = gainlayer.gte(1)
+  .multiply(ee.Image.pixelArea().divide(10000)) // convert m^2 to hectares
+  .reduceRegions({
+    collection: wdpaSubset,
+    reducer: ee.Reducer.sum().setOutputs(['gain_area']),
+    scale: scale
+});
+  
+// print(wdpaSubset);
+
+// Which protected area has the greatest area of regrowth?
+print(
+  'Which protected area has the greatest area of regrowth?', 
+  wdpaSubset.reduceColumns({
+    reducer: ee.Reducer.toList().repeat(2),
+    selectors: ['NAME', 'gain_area']
+  })
+);
+
+// Question 3. In Sect. 23.2.2.2, we considered rates of deforestation in a buffer zone
+// around La Paya. Estimate the deforestation rates inside of La Paya using buffer
+// zones. Is forest loss more common close to the boundary of the reserve?
+
+// Maximum distance in meters is set in the brackets.
+var distance = protectedArea.distance(1000000);
+
+Map.addLayer(
+  distance, 
+  {
+    min: 0,
+    max: 20000,
+    palette: ['white', 'grey', 'black'],
+    opacity: 0.6
+  }, 
+  'Distance'
+);
+
+// Produce a raster of inside/outside the protected area.
+var protectedAreaRaster = protectedArea.map(function(feat)
+  {
+    return feat.set('protected', 1);
+  }).reduceToImage(['protected'], ee.Reducer.first());
+
+distance = distance.updateMask(protectedAreaRaster);
+
+var distanceZones = ee.Image(0)
+    .where(distance.gt(0), 1)
+    .where(distance.gt(1000), 2)
+    .where(distance.gt(3000), 3)
+    .updateMask(distance.lte(5000));
+
+Map.addLayer(distanceZones, {}, 'Distance zones');
+
+var deforestation = gfc.select('loss');
+var deforestation1km = deforestation.updateMask(distanceZones.eq(1));
+var deforestation3km = deforestation.updateMask(distanceZones.lte(2));
+var deforestation5km = deforestation.updateMask(distanceZones.lte(3));
+
+// We can estimate the deforestation area within 1km of the 
+// protected area within the boundary
+var deforestation1kmInside = deforestation1km.updateMask(protectedAreaRaster);
+
+// Get the value of each pixel in square meters
+// and divide by 10000 to convert to hectares.
+var deforestation1kmInsideArea = deforestation1kmInside.eq(1)
+  .multiply(ee.Image.pixelArea()).divide(10000);
+  
+// We need to set a larger geometry than the protected area
+// for the geometry parameter in reduceRegion().
+var deforestationEstimate1km = deforestation1kmInsideArea
+  .reduceRegion({
+    reducer: ee.Reducer.sum(),
+    geometry: protectedArea.geometry().buffer(1000),
+    scale: deforestation.projection().nominalScale()
+  });
+
+print('Deforestation within a 1km buffer inside the protected area (ha)', deforestationEstimate1km);
+

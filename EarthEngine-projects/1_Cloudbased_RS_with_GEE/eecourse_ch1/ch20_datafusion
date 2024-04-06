@@ -1,0 +1,30 @@
+// Data Fusion: Merging Classification Streams
+
+// Section 1: Imagery & Classification of the Roosevelt River
+// The classifications are already created and stored as an ImageCollection asset
+
+var events = ee.ImageCollection('projects/gee-book/assets/F4-8/cleanEvents');
+
+print(events, 'List of Events');
+print('Number of events:', events.size());
+
+print(
+  ui.Thumbnail(
+    events, 
+    {
+      min: 0,
+      max: 3,
+      palette: ['black', 'green', 'blue', 'yellow'],
+      framesPerSecond: 1,
+      dimensions: 1000
+    }
+  )
+); 
+
+// In the thumbnail sequence, the color palette shows Forest (class 1) as green,
+// Water (class 2) as blue, and Active Agriculture (class 3) as yellow. Areas with no
+// data in a particular Event are shown in black.
+
+// Section 2: Basics of the BULC interface
+// To use BULC GUI, see Code Checkpoint F48b
+

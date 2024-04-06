@@ -1,0 +1,17 @@
+// Let us learn to use the API
+var a = 1;
+var b = 2;
+
+// Use ee.Number to create an object from a value which you can apply the add function to
+var result = ee.Number(a).add(b);
+print(result); 
+
+// We want to create a sequence of numbers with a step interval of 5
+var yearList = ee.List.sequence(1980, 2020, 5);
+print(yearList);
+
+// Synthesis - Homework assignment
+var mission = ee.String('Sentinel');
+var satellite = ee.String('2A');
+
+print(mission.cat(satellite));

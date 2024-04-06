@@ -1,0 +1,172 @@
+// Joins with Feature Collections
+
+// 2.1 Selecting by Location
+// We will implement a join to select all blocks in San Francisco 
+// that are within 1 km of an interstate highway.
+
+var blocks = ee.FeatureCollection('TIGER/2010/Blocks');
+var roads = ee.FeatureCollection('TIGER/2016/Roads');
+var sfNeighborhoods = ee.FeatureCollection('projects/gee-book/assets/F5-0/SFneighborhoods');
+var geometry = sfNeighborhoods.geometry();
+Map.centerObject(geometry);
+
+// Filter blocks and roads to San Francisco boundary.
+var sfBlocks = blocks.filter(ee.Filter.bounds(geometry));
+var sfRoads = roads.filter(ee.Filter.bounds(geometry));
+
+// we first filter the sfRoads collection to select all 
+// segments with the rttyp property value of I (interstate)
+var interstateRoads = sfRoads.filter(ee.Filter.eq('rttyp', 'I'));
+
+// Then we visualize 
+var sfBlocksDrawn = sfBlocks.draw({
+    color: 'gray',
+    strokeWidth: 1
+}).clip(geometry);
+
+Map.addLayer(
+  sfBlocksDrawn, 
+  {}, 
+  'All Blocks',
+  0
+);
+
+var interstateRoadsDrawn = interstateRoads.draw({
+    color: 'blue',
+    strokeWidth: 3
+}).clip(geometry);
+
+Map.addLayer(
+  interstateRoadsDrawn, 
+  {}, 
+  'Interstate Roads', 
+  0
+);
+
+// Let’s define a join that will select all the features from the sfBlocks layer
+// that are within 1 km of any feature from the interstateRoads layer. We start
+// by defining a filter using the ee.Filter.withinDistance filter
+
+var joinFilter = ee.Filter.withinDistance({
+    distance: 1000,
+    leftField: '.geo', // we use a property called .geo as we want to compare the collections
+    rightField: '.geo',
+    maxError: 10 // specifying a small non-zero tolerance value will speed up the operation
+}); 
+
+// Using a simple join as we want features from the first collection 
+// that match the second collection
+var closeBlocks = ee.Join.simple().apply({
+    primary: sfBlocks,
+    secondary: interstateRoads,
+    condition: joinFilter
+});
+
+var closeBlocksDrawn = closeBlocks.draw({
+    color: 'orange',
+    strokeWidth: 1
+}).clip(geometry);
+
+Map.addLayer(
+  closeBlocksDrawn, 
+  {}, 
+  'Blocks within 1km', 
+  0
+);
+
+// Spatial Joins
+// We will now implement a spatial join to count points in polygons
+
+var sfNeighborhoods = ee.FeatureCollection('projects/gee-book/assets/F5-0/SFneighborhoods');
+var sfTrees = ee.FeatureCollection('projects/gee-book/assets/F5-3/SFTrees');
+
+// Use paint() to visualize the polygons with only outline
+var sfNeighborhoodsOutline = ee.Image().byte().paint({
+    featureCollection: sfNeighborhoods,
+    color: 1,
+    width: 3
+});
+
+Map.addLayer(
+  sfNeighborhoodsOutline, 
+  {
+    palette: ['blue']
+  },
+  'SF Neighborhoods'
+);
+
+// Use style() to visualize the points
+var sfTreesStyled = sfTrees.style({
+    color: 'green',
+    pointSize: 2,
+    pointShape: 'triangle',
+    width: 2
+});
+
+Map.addLayer(
+  sfTreesStyled, 
+  {}, 
+  'SF Trees'
+);
+
+// To find tree points in each neighbourhood polygon, 
+// we will use an ee.Filter.intersects filter
+var intersectFilter = ee.Filter.intersects({
+    leftField: '.geo',
+    rightField: '.geo',
+    maxError: 10
+}); 
+
+// A saving join will find all the features from the secondary collection 
+// that match the filter and store them in a property in the primary collection
+var saveAllJoin = ee.Join.saveAll({
+  matchesKey: 'trees',
+}); // We will use the ee.Join.saveAll since we want to store all matching features
+
+// Let's apply the join and print the first feature of the resulting collection to verify
+var joined = saveAllJoin.apply(sfNeighborhoods, sfTrees, intersectFilter);
+print(joined.first()); 
+
+// Calculate total number of trees within each feature.
+var ssfNeighborhoods = joined.map(function(f) {
+    var treesWithin = ee.List(f.get('trees'));
+    var totalTrees = ee.FeatureCollection(treesWithin).size();
+    return f.set('total_trees', totalTrees);
+});
+
+print(ssfNeighborhoods.first()); 
+
+// Export the results as a CSV.
+Export.table.toDrive({
+    collection: ssfNeighborhoods,
+    description: 'SF_Neighborhood_Tree_Count',
+    folder: 'earthengine',
+    fileNamePrefix: 'tree_count',
+    fileFormat: 'CSV',
+    selectors: ['nhood', 'total_trees'] // selecting specific columns to export
+}); 
+
+// Assignment 1. What join would you use if you wanted to know which neighborhood each tree belongs to? 
+// Modify the code above to do a join and post-process the result to add a neighborhood property to each 
+// tree point. Export the results as a shapefile.
+
+var saveAllJoininv = ee.Join.saveAll({
+  matchesKey: 'neighborhood',
+});
+
+// Conduct join
+var joined_inv = saveAllJoininv.apply(sfTrees, sfNeighborhoods, intersectFilter);
+print('Joined inv:', joined_inv.first()); 
+
+// Post process
+// var sNeighborhoodsID = joined_inv.map(function(f) {
+//     var treesWithin = ee.List(f.get('neighborhood'));
+//     var fid = ee.FeatureCollection(treesWithin)['properties']['nhood'];
+//     return f.set('neighborhoodID', fid);
+// });
+
+// print(sNeighborhoodsID.first()); 
+
+// var treesWithin = joined_inv.first().get('neighborhood');
+// print(treesWithin.get('properties'));
+

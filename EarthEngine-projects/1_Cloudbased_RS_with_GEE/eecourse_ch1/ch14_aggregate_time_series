@@ -1,0 +1,170 @@
+// Section 1: Filtering an image collection
+// We'll start by accessing the CHIRPS pentad collection
+// and filtering it to create a timeseries for a single year
+
+var chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/PENTAD');
+var startDate = '2019-01-01';
+var endDate = '2020-01-01';
+var yearFiltered = chirps.filter(ee.Filter.date(startDate,
+endDate));
+print(yearFiltered, 'Date-filtered CHIRPS images'); 
+
+// The CHIRPS collection contains one image for every pentad. 
+// The filtered collection above is filtered to contain one year, 
+// which equates to 72 global images
+// Each images pixel values store the total precipitation during the pentad
+
+// Let us aggregate this collection so that we have 12 images—one image per month, 
+// with pixel values that represent the total precipitation for that month.
+
+// Working with dates
+var chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/PENTAD');
+var year = 2019;
+var startDate = ee.Date.fromYMD(year, 1, 1);
+
+// To create a date one year in future from a given date:
+var endDate = startDate.advance(1, 'year');
+
+// Filtering the CHIRPS data
+var yearFiltered = chirps.filter(ee.Filter.date(startDate, endDate));
+print(yearFiltered, 'Date-filtered CHIRPS images'); // check that date is accurately set
+
+// millis function in EE: returns the number of milliseconds since the 
+// arbitrary reference date of 1970
+print(startDate, 'Start date');
+print(endDate, 'End date');
+print('Start date as timestamp', startDate.millis());
+print('End date as timestamp', endDate.millis()); 
+
+// Aggregating Images
+
+// Aggregate this time series to compute monthly images.
+// Create a list of months
+var months = ee.List.sequence(1, 12); 
+
+// Write a function that takes a month number
+// and returns a monthly image.
+var createMonthlyImage = function(beginningMonth) {
+    var startDate = ee.Date.fromYMD(year, beginningMonth, 1);
+    var endDate = startDate.advance(1, 'month');
+    var monthFiltered = yearFiltered.filter(ee.Filter.date(startDate, endDate));
+    
+    // Calculate total precipitation.
+    var total = monthFiltered.reduce(ee.Reducer.sum());
+    return total.set({
+      'system:time_start': startDate.millis(),
+      'system:time_end': endDate.millis(),
+      'year': year,
+      'month': beginningMonth
+    });
+}; 
+
+// map() the function on the list of months
+// This creates a list with images for each month in the list
+var monthlyImages = months.map(createMonthlyImage); 
+print(monthlyImages);
+
+// We can create an ImageCollection from this ee.List of images
+// using ee.ImageCollection.fromImages function
+// Create an ee.ImageCollection.
+var monthlyCollection = ee.ImageCollection.fromImages(monthlyImages);
+print(monthlyCollection);
+
+// Section 4: Plotting time series
+
+// Create a point with coordinates for the city of Bengaluru, India.
+var point = ee.Geometry.Point(77.5946, 12.9716);
+
+var chart = ui.Chart.image.series({
+    imageCollection: monthlyCollection,
+    region: point,
+    reducer: ee.Reducer.mean(),
+    scale: 5566   // the CHIRPS data page indicates that the scale is 5566m
+});
+
+print(chart); 
+
+// Let's customize the chart using Google Charts
+var chart = ui.Chart.image.series({
+    imageCollection: monthlyCollection,
+    region: point,
+    reducer: ee.Reducer.mean(),
+    scale: 5566
+  }).setOptions({
+    lineWidth: 1,
+    pointSize: 3,
+    title: 'Monthly Rainfall at Bengaluru',
+  vAxis: {
+    title: 'Rainfall (mm)'
+  },
+  hAxis: {
+    title: 'Month',
+    gridlines: {
+      count: 12
+    }
+  }
+});
+
+print(chart);
+
+// Assignment
+// Aggregate the same collection to yearly images and create 
+// a chart for annual precipitation from 1981 to 2021 at your chosen location
+var leipzigPoint = ee.Geometry.Point([3.3685746776459844, 6.513433658765762]);
+
+var chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/PENTAD')
+            .filterBounds(leipzigPoint)
+
+// Create a list of years
+var years = ee.List.sequence(1981, 2021);
+
+// Write a function that takes a year number
+// and returns a yearly image
+var createYearlyImage = function(beginningYear) {
+    // Add your code
+    var startDate = ee.Date.fromYMD(beginningYear, 1, 1);
+    var endDate = startDate.advance(1, 'year');
+    var chirpFiltered = chirps.filter(ee.Filter.date(startDate, endDate));
+    
+    // Calculate total precipitation.
+    var total = chirpFiltered.reduce(ee.Reducer.sum());
+    return total.set({
+      'system:time_start': startDate.millis(),
+      'system:time_end': endDate.millis(),
+      'year': beginningYear
+    });
+};
+
+var yearlyImages = years.map(createYearlyImage);
+var yearlyCollection = ee.ImageCollection.fromImages(yearlyImages);
+print(yearlyCollection); 
+
+// Map.addLayer(yearlyCollection, {min:0, max: 2500, palette: ['green', 'white']}, 'yearlyCollection');
+// Map.centerObject(leipzigPoint, 10);
+
+// Make a chart of results
+var mychart = ui.Chart.image.series({
+    imageCollection: yearlyCollection,
+    region: leipzigPoint,
+    reducer: ee.Reducer.mean(),
+    scale: 5566
+  })
+  .setOptions({
+    lineWidth: 1,
+    pointSize: 3,
+    title: 'Annual Rainfall in Lagos over 40 years',
+  vAxis: {
+    title: 'Rainfall (mm)'
+  },
+  hAxis: {
+    title: 'Year',
+    gridlines: {
+      count: 12
+    }
+  }
+});
+
+print(mychart)
+
+
+

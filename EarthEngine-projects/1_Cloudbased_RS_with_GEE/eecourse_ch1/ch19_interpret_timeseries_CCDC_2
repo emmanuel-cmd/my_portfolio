@@ -1,0 +1,74 @@
+// Section 4: Extracting coefficients manually
+var palettes = require('users/gena/packages:palettes');
+var resultsPath = 'projects/gee-book/assets/F4-7/Rondonia_example_small';
+var ccdResults = ee.Image(resultsPath);
+
+Map.centerObject(ccdResults, 10);
+
+print(ccdResults);
+
+// Retrieve intercept coefficients for a segment intersecting a specific date
+
+// Display segment start and end times.
+var start = ccdResults.select('tStart');
+var end = ccdResults.select('tEnd');
+
+Map.addLayer(start, 
+  {
+    min: 1999,
+    max: 2001
+  }, 
+  'Segment start'
+);
+Map.addLayer(end, 
+  {
+  min: 2010,
+  max: 2020
+  }, 
+  'Segment end'
+); 
+
+// To simplify the processing of data, we can select 
+// a single segment to extract its coefficients:
+// Find the segment that intersects a given date.
+var targetDate = 2005.5;
+var selectSegment = start.lte(targetDate).and(end.gt(targetDate));  // we select the segments that meet the condition of starting before and ending after 2005
+Map.addLayer(selectSegment, {}, 'Identified segment');
+
+// We can use the above identified segment to select the coefficients
+// for that segment using the code below:
+
+// Get all coefs in the SWIR1 band.
+var SWIR1Coefs = ccdResults.select('SWIR1_coefs');
+Map.addLayer(SWIR1Coefs, {}, 'SWIR1 coefs');
+
+// Select only those for the segment that we identified previously.
+var sliceStart = selectSegment.arrayArgmax().arrayFlatten([['index']]);
+var sliceEnd = sliceStart.add(1);
+var selectedCoefs = SWIR1Coefs.arraySlice(0, sliceStart, sliceEnd);
+Map.addLayer(selectedCoefs, {}, 'Selected SWIR1 coefs');
+
+// What we have now is the full set of coefficients 
+// for the segment that intercept the midpoint of 2005
+// The coefficients are in the following order: intercept, 
+// slope, cosine 1, sine 1, cosine 2, sine 2, cosine 3, and sine 3.
+
+// Retrieve only the intercept coefficient.
+var intercept = selectedCoefs.arraySlice(1, 0, 1).arrayProject([1]);
+var intVisParams = {
+    palette: palettes.matplotlib.viridis[7],
+    min: -6,
+    max: 6
+};
+Map.addLayer(
+  intercept.arrayFlatten([['INTP']]), 
+  intVisParams, 
+  'INTP_SWIR1'
+);
+
+// Some values in the INTP_SWIR1 are outside the 0-1 range
+// This is because the intercept are calculated for the time 0 
+// and not the year (2005) we requested. 
+// In order to retrieve the adjusted intercept, as well as other 
+// coefficients, we will use a different approach.
+

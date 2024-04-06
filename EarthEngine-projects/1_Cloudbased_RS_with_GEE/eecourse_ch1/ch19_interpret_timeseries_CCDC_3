@@ -1,0 +1,108 @@
+// Extracting coefficients using external functions
+
+// -> The first step involves determining
+// the date of interest and converting the CCDC results from array images to regular
+// multiband images for easier manipulation and faster display. 
+
+// Load the required libraries.
+var palettes = require('users/gena/packages:palettes');
+var utils = require('users/parevalo_bu/gee-ccdc-tools:ccdcUtilities/api');
+
+// Load the results.
+var resultsPath = 'projects/gee-book/assets/F4-7/Rondonia_example_small';
+var ccdResults = ee.Image(resultsPath);
+Map.centerObject(ccdResults, 10);
+
+// Convert a date into fractional years.
+var inputDate = '2005-09-25';
+var dateParams = {
+    inputFormat: 3,
+    inputDate: inputDate,
+    outputFormat: 1
+};
+
+var formattedDate = utils.Dates.convertDate(dateParams);
+//print('formatted date:', formattedDate);
+// Band names originally used as inputs to the CCD algorithm.
+var BANDS = ['BLUE', 'GREEN', 'RED', 'NIR', 'SWIR1', 'SWIR2'];
+
+// Names for the time segments to retrieve.
+var SEGS = ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'];
+
+// Transform CCD results into a multiband image.
+var ccdImage = utils.CCDC.buildCcdImage(
+    ccdResults, 
+    SEGS.length, 
+    BANDS
+);
+
+print(ccdImage);
+
+// To extract a subset of coefficients for the desired bands, we can use a
+// function in the imported library, called getMultiCoefs
+
+// Define bands to select.
+var SELECT_BANDS = ['RED', 'GREEN', 'BLUE', 'NIR'];
+
+// Define coefficients to select.
+// This list contains all possible coefficients, and the RMSE
+var SELECT_COEFS = ['INTP', 'SLP', 'RMSE'];
+
+// Obtain coefficients.
+var coefs = utils.CCDC.getMultiCoefs(
+    ccdImage, formattedDate, SELECT_BANDS, SELECT_COEFS, true,
+    SEGS, 'after'   
+);
+
+// 'after': behaviour to apply if there is no segment for the requested 
+// date. after will use the value of the segment after the requested date
+
+print('Obtained coefficients:', coefs);
+
+// Show a single coefficient.
+var slpVisParams = {
+    palette: palettes.matplotlib.viridis[7],
+    min: -0.0005,
+    max: 0.005
+};
+
+Map.addLayer(
+  coefs.select('RED_SLP'), 
+  slpVisParams, 
+  'RED SLOPE 2005-09-25'
+);
+
+var rmseVisParams = {
+    palette: palettes.matplotlib.viridis[7],
+    min: 0,
+    max: 0.1
+};
+
+Map.addLayer(
+  coefs.select('NIR_RMSE'), 
+  rmseVisParams,
+  'NIR RMSE 2005-09-25'
+);
+
+// Show an RGB with three coefficients.
+var rgbVisParams = {
+    bands: ['RED_INTP', 'GREEN_INTP', 'BLUE_INTP'],
+    min: 0,
+    max: 0.1
+};
+Map.addLayer(coefs, rgbVisParams, 'RGB 2005-09-25');
+
+// Areas that have experienced transformations and show agricultural activity 
+// tend to have positive slopes in the RED band appearing bright in the image
+// Similarly for the RMSE image, stable forests present more predictable time series 
+// of surface reflectance that are captured more faithfully by the time segments, 
+// and therefore present lower RMSE values, appearing darker in the image.
+// Agricultural areas present noisier time series that are more challenging to model
+// and result in higher RMSE values appearing brighter. 
+
+// In the RGB intercept image-the intercepts are calculated for the middle points
+// of the time segment intercepting the date we requested, representing the average 
+// reflectance for the span of the selected segment. 
+// In that sense, when shown together as an RGB image, they are similar to a composite
+// image for the selected date, with the advantage of always being cloud free.
+

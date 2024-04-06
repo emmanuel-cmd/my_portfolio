@@ -1,0 +1,135 @@
+// Remapping and Palettes
+// The USGS National Land Cover Database (NLCD) 
+
+// Advanced remapping using NLCD.
+// Import NLCD.
+var nlcd = ee.ImageCollection('USGS/NLCD_RELEASES/2016_REL');
+
+// Use Filter to select the 2016 dataset.
+var nlcd2016 = nlcd.filter(ee.Filter.eq('system:index', '2016')).first();
+
+// Select the land cover band.
+var landcover = nlcd2016.select('landcover');
+
+// Map the NLCD land cover.
+Map.addLayer(landcover, null, 'NLCD Landcover');
+
+// Now suppose we want to change the color palette.
+var newPalette = [
+  '466b9f', 'd1def8', 'dec5c5',
+  'ab0000', 'ab0000', 'ab0000',
+  'b3ac9f', '68ab5f', '1c5f2c',
+  'b5c58f', 'af963c', 'ccb879',
+  'dfdfc2', 'd1d182', 'a3cc51',
+  '82ba9e', 'dcd939', 'ab6c28',
+  'b8d9eb', '6c9fb8'
+];
+
+// Try mapping with the new color palette.
+Map.addLayer(
+  landcover, 
+  {
+    palette: newPalette
+  }, 
+  'NLCD New Palette'
+);
+
+// We see an unexpected result in the new img
+// because the numeric codes for the different classes are not sequential
+// Thus, Earth Engine stretches the given palette across the whole range of values
+// and produces an unexpected color palette. To fix this issue, we will create a new
+// index for the class values so that they are sequential.
+
+// Extract the class values and save them as a list.
+var values = ee.List(landcover.get('landcover_class_values'));
+
+// Print the class values to console.
+print('raw class values', values);
+
+// Determine the maximum index value
+var maxIndex = values.size().subtract(1);
+
+// Create a new index for the remap
+var indexes = ee.List.sequence(0, maxIndex);
+
+// Print the updated class values to console.
+print('updated class values', indexes);
+
+// Remap NLCD and display it in the map.
+var colorized = landcover.remap(values, indexes)
+  .visualize({
+    min: 0,
+    max: maxIndex,
+    palette: newPalette
+});
+
+Map.addLayer(colorized, {}, 'NLCD Remapped Colors');
+
+// Annotations
+// We'll make use of the text package that provides a way 
+// to render strings into raster images directly using the EE API
+
+// The API of the text package includes the ffg parameters:
+/**
+* Draws a string as a raster image at a given point.
+*
+* @param {string} str - string to draw
+* @param {ee.Geometry} point - location the the string
+will be drawn
+* @param {{string, Object}} options - optional properties
+used to style text
+*
+* The options dictionary may include one or more of the
+following:
+* fontSize - 16|18|24|32 - the size of the font
+(default: 16)
+* fontType - Arial|Consolas - the type of the
+font (default: Arial)
+* alignX - left|center|right (default: left)
+* alignY - top|center|bottom (default: top)
+* textColor - text color string (default: ffffff
+- white)
+* textOpacity - 0-1, opacity of the text (default:
+0.9)
+* textWidth - width of the text (default: 1)
+* outlineColor - text outline color string (default:
+000000 - black)
+* outlineOpacity - 0-1, opacity of the text outline
+(default: 0.4)
+* outlineWidth - width of the text outlines
+(default: 0)
+*/
+
+// To demonstrate how to use the package, 
+// let us render a simple ‘Hello World!’
+// text string placed at the map center using default text parameters.
+
+// Include the text package.
+var text = require('users/gena/packages:text');
+
+// Configure map (change center and map type).
+Map.setCenter(0, 0, 10);   // we configure the map to be centered at (0,0) and a zoom level of 10
+Map.setOptions('HYBRID'); // the map is configured to have a dark background so that the white test would be visible
+
+// Draw text string and add to map.
+var pt = Map.getCenter();
+var scale = Map.getScale();
+var image = text.draw('Hello World!', pt, scale);
+Map.addLayer(image);
+
+// Adjust text parameters for the same call 
+var image = text.draw(
+  'Hello World!', 
+  pt, scale, {
+    fontSize: 32,
+    fontType: 'Consolas',
+    textColor: 'black',
+    outlineColor: 'white',
+    outlineWidth: 1,
+    outlineOpacity: 0.8
+});
+
+// Add the text image to the map.
+Map.addLayer(image);
+
+

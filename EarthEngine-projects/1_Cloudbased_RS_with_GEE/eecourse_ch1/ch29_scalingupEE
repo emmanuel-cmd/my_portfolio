@@ -1,0 +1,43 @@
+// Scaling Across Time
+// Scaling up with Earth Engine Operators: Annual Daily Climate Data
+
+// the ee.Image.reduceRegions operator, which extracts
+// statistics from an Image for each Feature (point or polygon) in a
+// FeatureCollection. We'll map the reduceRegions operator over each 
+// daily img in an ImageCollection thus providing us with the daily 
+// climate information for each county of interest
+
+// First, define the FeatureCollection, ImageCollection, and time period: 
+
+// Load county dataset.
+// Filter counties in Indiana, Illinois, and Iowa by state FIPS code.
+// Select only the unique ID column for simplicity.
+var countiesAll = ee.FeatureCollection('TIGER/2018/Counties');
+var states = ['17', '18', '19'];
+var uniqueID = 'GEOID';
+var featColl = countiesAll.filter(ee.Filter.inList('STATEFP', states))
+  .select(uniqueID);
+print(featColl.size());
+print(featColl.limit(1));
+
+// Visualize target features (create Figure F6.2.1).
+Map.centerObject(featColl, 5);
+Map.addLayer(featColl);
+
+// specify years of interest
+var startYear = 2020;
+var endYear = 2020;
+
+// climate dataset info
+var imageCollectionName = 'IDAHO_EPSCOR/GRIDMET';
+var bandsWanted = ['pr', 'tmmn', 'tmmx'];
+var scale = 4000;
+
+// Load and format climate data.
+var startDate = startYear + '-01-01';
+var endYear_adj = endYear + 1;
+var endDate = endYear_adj + '-01-01';
+var imageCollection = ee.ImageCollection(imageCollectionName)
+    .select(bandsWanted)
+    .filterBounds(featColl)
+    .filterDate(startDate, endDate);   //filterDate has an inclusive startDate and exclusive endDate

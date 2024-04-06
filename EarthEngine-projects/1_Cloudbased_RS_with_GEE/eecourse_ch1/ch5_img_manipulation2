@@ -1,0 +1,171 @@
+// Create an NDVI image using Sentinel 2.
+var seaPoint = ee.Geometry.Point(-122.2040, 47.6221);
+var seaImage = ee.ImageCollection('COPERNICUS/S2')
+.filterBounds(seaPoint)
+.filterDate('2020-08-15', '2020-10-01')
+.first();
+
+var seaNDVI = seaImage.normalizedDifference(['B8', 'B4']);
+
+// And map it.
+Map.centerObject(seaPoint, 10);
+var vegPalette = ['red', 'white', 'green'];
+Map.addLayer(seaNDVI,
+  {
+      min: -1,
+      max: 1,
+      palette: vegPalette
+  },
+  'NDVI Seattle'
+);
+
+// vegetated areas are green; non vegetated areas are pink and water is white
+
+// Implement a threshold.
+var seaVeg = seaNDVI.gt(0.5);
+// Map the threshold.
+Map.addLayer(seaVeg,
+  {
+    min: 0,
+    max: 1,
+    palette: ['white', 'green']
+  },
+    'Non-forest vs. Forest'
+); 
+
+// Implement .where.
+// Create a starting image with all values = 1.
+var seaWhere = ee.Image(1)
+// Use clip to constrain the size of the new image.
+.clip(seaNDVI.geometry());
+
+// Make all NDVI values less than -0.1 equal 0.
+seaWhere = seaWhere.where(seaNDVI.lte(-0.1), 0);
+
+// Make all NDVI values greater than 0.5 equal 2.
+seaWhere = seaWhere.where(seaNDVI.gte(0.5), 2);
+
+// Map our layer that has been divided into three classes.
+Map.addLayer(
+  seaWhere,
+{
+    min: 0,
+    max: 2,
+    palette: ['blue', 'white', 'green']
+},
+    'Water, Non-forest, Forest'
+);
+
+// Implement masking.
+// View the seaVeg layer's current mask.
+Map.centerObject(seaPoint, 9);
+Map.addLayer(seaVeg.mask(), {}, 'seaVeg Mask');
+
+// Suppose we only want to display and conduct analyses in the
+// forested areas: Let us mask out the non-forested areas from
+// our image. 
+
+// Create a binary mask of non-forest.
+var vegMask = seaVeg.eq(1);
+
+Map.addLayer(
+  vegMask, 
+  {
+    min:0, 
+    max:1
+  }, 
+  'vegMask'
+)
+
+// Update the seaVeg mask with the non-forest mask.
+var maskedVeg = seaVeg.updateMask(vegMask);
+
+// Map the updated Veg layer
+Map.addLayer(maskedVeg,
+  {
+    min: 0,
+    max: 1,
+    palette: ['green']
+  },
+'Masked Forest Layer'
+);
+
+// Map the updated mask
+Map.addLayer(maskedVeg.mask(), {}, 'maskedVeg Mask');
+
+// Remapping values in our image
+// Implement remapping.
+// Remap the values from the seaWhere layer.
+var seaRemap = seaWhere.remap([0, 1, 2], // Existing values.
+[9, 11, 10]); // Remapped values.
+
+Map.addLayer(seaRemap,
+  {
+      min: 9,
+      max: 11,
+      palette: ['blue', 'green', 'white']
+  },
+    'Remapped Values'
+);
+
+// ASSIGNMENTS
+// Calculate and display CMR at the following point: ee.Geometry.Point(−100.543, 33.456)
+var myPoint = ee.Geometry.Point(-100.543, 33.456);
+var pontImg = ee.ImageCollection('COPERNICUS/S2')
+.filterBounds(myPoint)
+.first();
+
+// Select the SWIR1 and SWIR2 bands
+var swir1 = pontImg.select('B11');
+var swir2 = pontImg.select('B12');
+
+// Calculate CMR
+var cmr_seaImg = swir1.divide(swir2)
+
+// And map it
+Map.centerObject(myPoint, 10);
+var clayPalette = ['white','black'];
+Map.addLayer(
+  cmr_seaImg, 
+  {
+    min: 0, 
+    max: 2, 
+    palette: clayPalette
+  }, 
+  'Clays mineral ratio'
+)
+
+// 2. Calculate the Iron Oxide Ratio which can be used to 
+// detect hydrothermally altered rocks (e.g. from volcanoes)
+// that contain iron bearing sulfides which have been oxidized
+
+// 3. Calculate the Normalized Difference Built Index (NDBI)
+// for the sfoImg used in this chapter (on Sentinel-2 data) 
+// Import and filter imagery by location and date.
+var sfoPoint = ee.Geometry.Point(-122.3774, 37.6194);
+var sfoImage = ee.ImageCollection('COPERNICUS/S2')
+.filterBounds(sfoPoint)
+.filterDate('2020-02-01', '2020-04-01')
+.first();
+
+// use normalizedDifference to calculate NDBI
+var ndbi = sfoImage.normalizedDifference(['B11', 'B8'])
+
+// Display ndbi
+var waterPalette = ['white', 'blue'];
+var barePalette = waterPalette.reverse();
+
+Map.centerObject(sfoPoint, 10);
+
+Map.addLayer(
+  ndbi, 
+  {
+    min: -0.5, 
+    max: 1, 
+    palette: barePalette
+  },
+  "Normalized Diff Built Index"
+);
+
+
+

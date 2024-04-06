@@ -1,0 +1,112 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = /* color: #d63000 */ee.Geometry.MultiPoint();
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Section 1: Filtering and Inspecting an Image Collection
+
+// Define a region of interest as a point in Lisbon, Portugal.
+var lisbonPoint = ee.Geometry.Point(-9.179473, 38.763948);
+
+// Center the map at that point.
+Map.centerObject(lisbonPoint, 16);
+
+// filter the large ImageCollection to be just images from 2020
+// around Lisbon. From each image, select true-color bands to draw
+var filteredIC = ee.ImageCollection('LANDSAT/LC08/C02/T1_TOA')
+    .filterDate('2020-01-01', '2021-01-01')
+    .filterBounds(lisbonPoint)
+    .select(['B6', 'B5', 'B4']);  // for false color 
+    
+// false color accentuates differences btw landcovers
+
+// Add the filtered ImageCollection so that we can inspect values
+// via the Inspector tool
+Map.addLayer(filteredIC, {}, 'TOA image collection');
+
+// Construct a chart using values queried from image collection.
+var chart = ui.Chart.image.series({
+    imageCollection: filteredIC,
+    region: lisbonPoint,
+    reducer: ee.Reducer.first(),
+    scale: 10
+});
+// Show the chart in the Console.
+print(chart);
+
+// How many images are there everywhere on earth?
+// Assemble images from all over the world and count the number of images in each pixel
+// We'll return to the same dataset n filter for 2020 but without the geographic limitation
+
+// compute and show the number of observations in an image collection
+var count = ee.ImageCollection('LANDSAT/LC08/C02/T1_TOA')
+    .filterDate('2020-01-01', '2021-01-01')
+    .select(['B6'])
+    .count();
+
+// add white background and switch to HYBRID basemap
+Map.addLayer(ee.Image(1), {
+    palette: ['white']
+    }, 'white', true, 0.5);
+
+Map.setOptions('HYBRID');
+// show image count
+// Map.addLayer(count, {
+//     min: 0,
+//     max: 50,
+//     palette: ['d7191c', 'fdae61', 'ffffbf', 'a6d96a', '1a9641']
+// }, 'landsat 8 image count (2020)');
+
+// Center the map at that point.
+Map.centerObject(lisbonPoint, 5);
+
+// Reducing image collections to understand band values
+
+// Zoom to an informative scale for the code that follows.
+Map.centerObject(lisbonPoint, 10);
+
+// Add a mean composite image.
+var meanFilteredIC = filteredIC.reduce(ee.Reducer.mean());
+Map.addLayer(meanFilteredIC, {}, 'Mean values within image collection');
+
+// Now let us look at median values for the filteredIC
+// Add a median composite image.
+var medianFilteredIC = filteredIC.reduce(ee.Reducer.median());
+Map.addLayer(medianFilteredIC, {}, 'Median values within image collection');
+
+// Compute Multiple Percentile Images for an ImageCollection
+// Percentiles can help you better understand the variability of values 
+// in image collections
+
+// compute a single 30% percentile on a per-pixel and per-band basis for our filteredIC
+var p30 = filteredIC.reduce(ee.Reducer.percentile([30]));
+
+Map.addLayer(p30, {
+    min: 0.05,
+    max: 0.35
+}, '30%'); 
+
+// We can see that this 30th-percentile img looks so much cleaner than the 
+// mean composite image calculated earlier. 
+// This happens because cloudy pixels usually have higher reflectance values 
+// At the lowest end of the values, other unwanted effects like
+// cloud or hill shadows typically have very low-reflectance values.
+
+
+// We can explore the range of values in an entire ImageCollection by viewing 
+// a series of increasingly bright percentile images: 
+var percentiles = [0, 10, 20, 30, 40, 50, 60, 70, 80];
+
+// let's compute percentile images and add them as separate layers
+percentiles.map(function(p) {
+  var image = filteredIC.reduce(ee.Reducer.percentile([p]));
+  Map.addLayer(image, {
+    min: 0.05,
+    max: 0.35
+  }, p + '%');
+}); 
+
+// We can see that low-percentile composite imgs depict darker 
+// low-reflectance land features such as water and cloud or hill shadows
+// while higher percentile imgs (>70%) depict clouds and any other atmmospheric 
+// or land effects corresponding to bright reflectance values
+
+

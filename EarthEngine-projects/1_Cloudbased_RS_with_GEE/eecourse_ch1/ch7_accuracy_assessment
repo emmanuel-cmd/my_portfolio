@@ -1,0 +1,113 @@
+// Import the reference dataset.
+var data = ee.FeatureCollection('projects/gee-book/assets/F2-2/milan_data');
+
+// Define the prediction bands.
+var predictionBands = [
+'SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6',
+'SR_B7','ST_B10','ndvi', 'ndwi'
+];
+
+// Split the dataset into training and testing sets.
+var trainingTesting = data.randomColumn({seed: 0});
+var trainingSet = trainingTesting
+.filter(ee.Filter.lessThan('random', 0.8));
+var testingSet = trainingTesting
+.filter(ee.Filter.greaterThanOrEquals('random', 0.8));
+
+
+// Train the Random Forest Classifier with the trainingSet.
+var RFclassifier = ee.Classifier.smileRandomForest(50).train({
+    features: trainingSet,
+    classProperty: 'class',
+    inputProperties: predictionBands
+});
+
+// A confusion matrix describes the quality of a classification
+// by comparing the predicted values with the actual values
+
+// the producer accuracy (recall) is calculated as the number of correctly
+// identified pixels of a given class divided by the total number of pixels actually in that class.
+
+// the user's accuracy (precision) is calculated as the total number of correctly 
+// identified pixels of a given class divided by the total number of pixels claimed to be in that class
+// the user's accuracy tells us the proportion of pixels identified on the map as being in that class
+// that are actually in that class on the ground.
+
+// Omission errors refer to the reference pixels that were left out of (omitted from) the correct
+// class in the classified map. Comission errors refer to the class pixels that were erroneously classified 
+// in the map and are complementary to the user's accuracy
+// In a 2-class system, an omission error in one class will be counted as a comission error in another class
+
+// kappa coefficient evaluates how well the classification performed as compared to random.
+
+// Now, to test the classification (verify model's accuracy),
+// we classify the testingSet and get a confusion matrix.
+var confusionMatrix = testingSet.classify(RFclassifier)
+.errorMatrix({
+    actual: 'class',
+    predicted: 'classification'
+});
+
+// Print the results.
+print('RF Confusion matrix:', confusionMatrix);
+print('RF Overall Accuracy:', confusionMatrix.accuracy());
+print('RF Producers Accuracy:', confusionMatrix.producersAccuracy());
+print('RF Consumers Accuracy:', confusionMatrix.consumersAccuracy());
+print('RF Kappa:', confusionMatrix.kappa());
+
+// Hyperparameter tuning.
+var numTrees = ee.List.sequence(5, 100, 5);
+
+var accuracies = numTrees.map(function(t) {
+  var classifier = ee.Classifier.smileRandomForest(t)
+    .train({
+      features: trainingSet,
+      classProperty: 'class',
+      inputProperties: predictionBands
+    });
+  return testingSet
+    .classify(classifier)
+    .errorMatrix('class', 'classification')
+    .accuracy();
+});
+
+print(ui.Chart.array.values({
+    array: ee.Array(accuracies),
+    axis: 0,
+    xLabels: numTrees
+}).setOptions({
+    hAxis: {
+      title: 'Number of trees'
+    },
+    vAxis: {
+      title: 'Accuracy'
+    },
+    title: 'Accuracy per number of trees'
+}));
+
+// Synthesis
+// Test other classifiers (e.g., CART or SVM)
+
+// Train the Random Forest Classifier with the trainingSet.
+var CARTclassifier = ee.Classifier.smileCart(50).train({
+    features: trainingSet,
+    classProperty: 'class',
+    inputProperties: predictionBands
+});
+
+// Get the confusion matrix
+var CARTconfusionMatrix = testingSet.classify(CARTclassifier)
+.errorMatrix({
+    actual: 'class',
+    predicted: 'classification'
+});
+
+// Print the results.
+print('CART Confusion matrix:', CARTconfusionMatrix);
+print('CART Overall Accuracy:', CARTconfusionMatrix.accuracy());
+print('CART Producers Accuracy:', CARTconfusionMatrix.producersAccuracy());
+print('CART Consumers Accuracy:', CARTconfusionMatrix.consumersAccuracy());
+print('CART Kappa:', CARTconfusionMatrix.kappa());
+
+
+

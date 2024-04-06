@@ -1,0 +1,184 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var bare = /* color: #d63000 */ee.Geometry.Polygon(
+        [[[-119.29158963591193, 47.204453926034134],
+          [-119.29192222982978, 47.20372502078616],
+          [-119.29054893881415, 47.20345532330602],
+          [-119.29017342955207, 47.20414049800489]]]),
+    water = /* color: #98ff00 */ee.Geometry.Polygon(
+        [[[-119.42904610218152, 47.22253398528318],
+          [-119.42973274768933, 47.22020224831784],
+          [-119.43299431385144, 47.21390604625894],
+          [-119.42904610218152, 47.21326472446865],
+          [-119.4271149116908, 47.21868656429651],
+          [-119.42608494342907, 47.2217470355224]]]),
+    veg = /* color: #0b4a8b */ee.Geometry.Polygon(
+        [[[-119.13546041722502, 47.04929418944858],
+          [-119.13752035374846, 47.04929418944858],
+          [-119.13966612096037, 47.04765665820436],
+          [-119.13777784581389, 47.04408900535686]]]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// - These need to be run to avoid errors downscript
+// Define a point of interest in Odessa, Washington, USA.
+var point = ee.Geometry.Point([-118.7436019417829, 47.18135755009023]);
+Map.centerObject(point, 10);
+
+// Select and map a true-color L8 image.
+var imageL8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_TOA')
+    .filterBounds(point)
+    .filterDate('2018-06-01', '2018-09-01')
+    .sort('CLOUD_COVER')
+    .first();
+
+// Spectral Unmixing
+// The goal of the linear unmixing model is to transform the original vector of band
+// values (p) for a pixel to the endmember values (ƒ) for that same pixel
+
+// Example START ---
+
+// Specify which bands to use for the unmixing.
+// Here the number of bands is 6
+
+var unmixImage = imageL8.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7']);
+
+// Use a false color composite to help define polygons of 'pure' land cover.
+Map.addLayer(imageL8, {
+    bands: ['B5', 'B4', 'B3'],
+    min: 0.0,
+    max: 0.4
+}, 'false color'); 
+
+// Define polygons of bare, water, and vegetation.
+
+// Check the polygons imported by charting mean 
+// spectra in them using ui.Chart.image.regions
+
+//Print a chart.
+var lcfeatures = ee.FeatureCollection([
+    ee.Feature(bare, {label: 'bare'}),
+    ee.Feature(water, {label: 'water'}),
+    ee.Feature(veg, {label: 'vegetation'})
+]);
+
+print(
+    ui.Chart.image.regions({
+      image: unmixImage,
+      regions: lcfeatures,
+      reducer: ee.Reducer.mean(),
+      scale: 30,
+      seriesProperty: 'label',
+      xLabels: [0.48, 0.56, 0.65, 0.86, 1.61, 2.2] // the spectral midpoints of each 6 bands
+    })
+    .setChartType('LineChart')
+    .setOptions({
+      title: 'Image band values in 3 regions',
+      hAxis: {
+        title: 'Wavelength'
+       },
+      vAxis: {
+        title: 'Mean Reflectance'
+      }
+}));
+
+// Get the means for each region.
+var bareMean = unmixImage
+.reduceRegion(ee.Reducer.mean(), bare, 30).values();   // Get the means as a list by calling the values function after computing the mean
+var waterMean = unmixImage
+.reduceRegion(ee.Reducer.mean(), water, 30).values();
+var vegMean = unmixImage
+.reduceRegion(ee.Reducer.mean(), veg, 30).values();
+
+// Each of these three lists represents a mean spectrum vector, which is one of the
+// columns for our S matrix defined above.
+
+// Stack these mean vectors to create an Array.
+var endmembers = ee.Array.cat([bareMean, vegMean, waterMean], 1);
+print(endmembers); 
+
+// Convert the 6-band input image to an image array.
+var arrayImage = unmixImage.toArray().toArray(1); 
+// to an image in which each pixel is a 1D vector (toArray), 
+// then into an image in which each pixel is a 6×1 matrix (toArray(1))
+
+// Solve for f.
+var unmixed = ee.Image(endmembers).matrixSolve(arrayImage);
+
+// Convert the result back to a multi-band image.
+var unmixedImage = unmixed
+    .arrayProject([0])
+    .arrayFlatten([
+    ['bare', 'veg', 'water']
+    
+]); 
+
+Map.addLayer(
+  unmixedImage, 
+  {
+    bands: ['bare', 'veg', 'water']
+  }, 
+  'Unmixed'
+);
+
+// Setion IV: The Hue, Saturation and Value Transform
+
+// Begin HSV transformation example
+// Convert Landsat 8 RGB bands to HSV color space
+var hsv = imageL8.select(['B4', 'B3', 'B2']).rgbToHsv();
+
+Map.addLayer(
+  hsv, 
+  {
+    max: 0.4
+  }, 
+  'HSV Transform'
+);
+
+// Next we convert img back to RGB space after substituting 
+// the panchromatic band for the value band, which appears 3rd
+// in the HSV image
+
+// Convert back to RGB, swapping the image panchromatic band for the value.
+var rgb = ee.Image.cat([
+    hsv.select('hue'),
+    hsv.select('saturation'),
+    imageL8.select(['B8'])
+  ]).hsvToRgb();
+
+Map.addLayer(
+  rgb, 
+  {
+  max: 0.4
+  }, 
+  'Pan-sharpened'
+); 
+
+
+// Synthesis
+// Write an expression to calculate NBRT index for the burnImage
+
+// Examine the true-color Landsat 8 images for the 2013 Rim Fire.
+var burnImage = ee.ImageCollection('LANDSAT/LC08/C02/T1_TOA')
+.filterBounds(ee.Geometry.Point(-120.083, 37.850))
+.filterDate('2013-09-15', '2013-09-27')
+.sort('CLOUD_COVER')
+.first();
+
+Map.centerObject(ee.Geometry.Point(-120.083, 37.850), 11);
+
+var nbrt = burnImage.expression(
+    '(NIR - SWIR * (Thermal/1000)) / (NIR + SWIR * (Thermal/1000))', {
+    'NIR': burnImage.select('B5'),
+    'SWIR': burnImage.select('B6'),
+    'Thermal': burnImage.select('B10')
+})
+
+// Visualization and also reversing the color palette
+var burnPalette = ['green', 'blue', 'yellow', 'red'];
+
+Map.addLayer(
+  nbrt, 
+  {
+    min: 0,
+    max: 1,
+    palette: burnPalette.reverse()
+  }, 
+  'NBRT'); 
